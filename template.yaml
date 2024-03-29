@@ -1,0 +1,201 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+
+  # lambda execution role
+  MyLambdaFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: MyLambdaFunctionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns: 
+        - arn:aws:iam::aws:policy/CloudWatchLambdaInsightsExecutionRolePolicy    
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess 
+      Policies:
+        - PolicyName: LambdaBasicExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                Resource: '*'
+
+  #API gategeway 
+  MyApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      DefinitionBody:
+        openapi: 3.0.1
+        info:
+          title: My API
+          version: '1.0'
+        paths:
+          /hello:
+            post:  # Cambiado a POST
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      type: object
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyApiFunction.Arn}/invocations
+          /crud:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateFunction.Arn}/invocations
+            get:
+              parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+              x-amazon-apigateway-integration:
+                httpMethod: GET
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetByIdFunction.Arn}/invocations
+            put:
+              x-amazon-apigateway-integration:
+                httpMethod: PUT
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateFunction.Arn}/invocations
+            delete:
+              x-amazon-apigateway-integration:
+                httpMethod: DELETE
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteFunction.Arn}/invocations
+          /get_all:
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: GET
+                type: aws_proxy
+                uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetAllFunction.Arn}/invocations
+
+  ServerlessSaaSLayers:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: serverless-saas-dependencies
+      Description: Utilities for project
+      ContentUri: layers/
+      CompatibleRuntimes:
+        - python3.10
+      LicenseInfo: "MIT"
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: python3.10
+
+  #lambda function
+  MyApiFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: MyLambdaFunctionRole
+    Properties:
+      Handler: src/lambda_function.lambda_handler
+      Runtime: python3.10
+      Role: !GetAtt MyLambdaFunctionRole.Arn
+      CodeUri: .
+      FunctionName: MyApiFunction
+      Layers:
+        - !Ref ServerlessSaaSLayers
+      Description: Lambda conectada a API Gateway
+      Timeout: 10
+
+  CreateFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: MyLambdaFunctionRole
+    Properties:
+      Handler: src/service_job.create
+      Runtime: python3.10
+      Role: !GetAtt MyLambdaFunctionRole.Arn
+      CodeUri: .
+      FunctionName: CreateFunction
+      Layers:
+        - !Ref ServerlessSaaSLayers
+      Description: Lambda conectada a API Gateway
+      Timeout: 10
+
+
+  GetByIdFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: MyLambdaFunctionRole
+    Properties:
+      Handler: src/service_job.get_by_id
+      Runtime: python3.10
+      Role: !GetAtt MyLambdaFunctionRole.Arn
+      CodeUri: .
+      FunctionName: GetByIdFunction
+      Layers:
+        - !Ref ServerlessSaaSLayers
+      Description: Lambda conectada a API Gateway
+      Timeout: 10
+
+  GetAllFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/service_job.get_all
+      Runtime: python3.10
+      Role: !GetAtt MyLambdaFunctionRole.Arn
+      CodeUri: .
+      FunctionName: GetAllFunction
+      Layers:
+        - !Ref ServerlessSaaSLayers
+      Description: Lambda conectada a API Gateway
+      Timeout: 10
+
+  UpdateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/service_job.update
+      Runtime: python3.10
+      Role: !GetAtt MyLambdaFunctionRole.Arn
+      CodeUri: .
+      FunctionName: UpdateFunction
+      Layers:
+        - !Ref ServerlessSaaSLayers
+      Description: Lambda conectada a API Gateway
+      Timeout: 10
+
+  DeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: src/service_job.delete
+      Runtime: python3.10
+      Role: !GetAtt MyLambdaFunctionRole.Arn
+      CodeUri: .
+      FunctionName: DeleteFunction
+      Layers:
+        - !Ref ServerlessSaaSLayers
+      Description: Lambda conectada a API Gateway
+      Timeout: 10
+
+  # to run lambda form api
+  CreateBusinessRequirementLambdaApiGatewayExecutionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref MyApiFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Join ["", ["arn:aws:execute-api:", !Ref "AWS::Region", ":", !Ref "AWS::AccountId", ":", !Ref MyApi, "/*/*/*" ]]
+
+Outputs:
+  MyApiUrl:
+    Description: URL de la API Gateway
+    Value: !Sub 'https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com/dev/hello'
